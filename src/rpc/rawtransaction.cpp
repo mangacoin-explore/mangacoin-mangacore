@@ -33,28 +33,88 @@
 
 #include <univalue.h>
 
-void ScriptPubKeyToJSON(const CScript& scriptPubKey, UniValue& out, bool fIncludeHex)
+void TxToUnivExpanded(const CTransaction& tx, const uint256& hashBlock, UniValue& entry, bool include_hex, int serialize_flags)
 {
-    txnouttype type;
-    std::vector<CTxDestination> addresses;
-    int nRequired;
+    entry.pushKV("txid", tx.GetHash().GetHex());
+    entry.pushKV("hash", tx.GetWitnessHash().GetHex());
+    entry.pushKV("version", tx.nVersion);
+    entry.pushKV("size", (int)::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION));
+    entry.pushKV("vsize", (GetTransactionWeight(tx) + WITNESS_SCALE_FACTOR - 1) / WITNESS_SCALE_FACTOR);
+    entry.pushKV("locktime", (int64_t)tx.nLockTime);
 
-    out.push_back(Pair("asm", ScriptToAsmStr(scriptPubKey)));
-    if (fIncludeHex)
-        out.push_back(Pair("hex", HexStr(scriptPubKey.begin(), scriptPubKey.end())));
+    UniValue vin(UniValue::VARR);
+    for (unsigned int i = 0; i < tx.vin.size(); i++) {
+        const CTxIn& txin = tx.vin[i];
+        UniValue in(UniValue::VOBJ);
+        if (tx.IsCoinBase())
+            in.pushKV("coinbase", HexStr(txin.scriptSig.begin(), txin.scriptSig.end()));
+        else {
+            in.pushKV("txid", txin.prevout.hash.GetHex());
+            in.pushKV("vout", (int64_t)txin.prevout.n);
+            UniValue o(UniValue::VOBJ);
+            o.pushKV("asm", ScriptToAsmStr(txin.scriptSig, true));
+            o.pushKV("hex", HexStr(txin.scriptSig.begin(), txin.scriptSig.end()));
+            in.pushKV("scriptSig", o);
 
-    if (!ExtractDestinations(scriptPubKey, type, addresses, nRequired)) {
-        out.push_back(Pair("type", GetTxnOutputType(type)));
-        return;
+            // Add address and value info if spentindex enabled
+            CSpentIndexValue spentInfo;
+            CSpentIndexKey spentKey(txin.prevout.hash, txin.prevout.n);
+            if (GetSpentIndex(spentKey, spentInfo)) {
+                in.pushKV("value", ValueFromAmount(spentInfo.satoshis));
+                in.pushKV("valueSat", spentInfo.satoshis);
+                if (spentInfo.addressType == 1) {
+                    in.pushKV("address", CBitcoinAddress(CKeyID(spentInfo.addressHash)).ToString());
+                } else if (spentInfo.addressType == 2)  {
+                    in.pushKV("address", CBitcoinAddress(CScriptID(spentInfo.addressHash)).ToString());
+                }
+            }
+
+            if (!tx.vin[i].scriptWitness.IsNull()) {
+                UniValue txinwitness(UniValue::VARR);
+                for (const auto& item : tx.vin[i].scriptWitness.stack) {
+                    txinwitness.push_back(HexStr(item.begin(), item.end()));
+                }
+                in.pushKV("txinwitness", txinwitness);
+            }
+        }
+        in.pushKV("sequence", (int64_t)txin.nSequence);
+        vin.push_back(in);
     }
+    entry.pushKV("vin", vin);
 
-    out.push_back(Pair("reqSigs", nRequired));
-    out.push_back(Pair("type", GetTxnOutputType(type)));
+    UniValue vout(UniValue::VARR);
+    for (unsigned int i = 0; i < tx.vout.size(); i++) {
+        const CTxOut& txout = tx.vout[i];
 
-    UniValue a(UniValue::VARR);
-    for(const CTxDestination& addr : addresses)
-        a.push_back(CBitcoinAddress(addr).ToString());
-    out.push_back(Pair("addresses", a));
+        UniValue out(UniValue::VOBJ);
+
+        out.pushKV("value", ValueFromAmount(txout.nValue));
+        out.pushKV("valueSat", txout.nValue);
+        out.pushKV("n", (int64_t)i);
+
+        UniValue o(UniValue::VOBJ);
+        ScriptPubKeyToUniv(txout.scriptPubKey, o, true);
+        out.pushKV("scriptPubKey", o);
+
+        // Add spent information if spentindex is enabled
+        CSpentIndexValue spentInfo;
+        CSpentIndexKey spentKey(tx.GetHash(), i);
+        if (GetSpentIndex(spentKey, spentInfo)) {
+            out.pushKV("spentTxId", spentInfo.txid.GetHex());
+            out.pushKV("spentIndex", (int)spentInfo.inputIndex);
+            out.pushKV("spentHeight", spentInfo.blockHeight);
+        }
+
+        vout.push_back(out);
+    }
+    entry.pushKV("vout", vout);
+
+    if (!hashBlock.IsNull())
+        entry.pushKV("blockhash", hashBlock.GetHex());
+
+    if (include_hex) {
+        entry.pushKV("hex", EncodeHexTx(tx, serialize_flags)); // the hex-encoded transaction. used the name "hex" to be consistent with the verbose output of "getrawtransaction".
+    }
 }
 
 void TxToJSONExpanded(const CTransaction& tx, const uint256 hashBlock, UniValue& entry,

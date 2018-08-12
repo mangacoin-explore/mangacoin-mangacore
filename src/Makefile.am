@@ -451,7 +451,6 @@ mangacoin_tx_SOURCES += bitcoin-tx-res.rc
 endif
 
 mangacoin_tx_LDADD = \
-  $(LIBBITCOIN_CLI) \
   $(LIBUNIVALUE) \
   $(LIBBITCOIN_COMMON) \
   $(LIBBITCOIN_UTIL) \
