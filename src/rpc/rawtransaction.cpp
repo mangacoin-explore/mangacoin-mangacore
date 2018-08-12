@@ -33,6 +33,49 @@
 
 #include <univalue.h>
 
+void ScriptPubKeyToJSON(const CScript& scriptPubKey, UniValue& out, bool fIncludeHex)
+{
+    txnouttype type;
+    vector<CTxDestination> addresses;
+    int nRequired;
+
+    out.push_back(Pair("asm", ScriptToAsmStr(scriptPubKey)));
+    if (fIncludeHex)
+        out.push_back(Pair("hex", HexStr(scriptPubKey.begin(), scriptPubKey.end())));
+
+    if (!ExtractDestinations(scriptPubKey, type, addresses, nRequired)) {
+        out.push_back(Pair("type", GetTxnOutputType(type)));
+        return;
+    }
+
+    out.push_back(Pair("reqSigs", nRequired));
+    out.push_back(Pair("type", GetTxnOutputType(type)));
+
+    UniValue a(UniValue::VARR);
+    BOOST_FOREACH(const CTxDestination& addr, addresses)
+        a.push_back(CBitcoinAddress(addr).ToString());
+    out.push_back(Pair("addresses", a));
+}
+
+void TxToJSONExpanded(const CTransaction& tx, const uint256 hashBlock, UniValue& entry,
+                      int nHeight = 0, int nConfirmations = 0, int nBlockTime = 0)
+{
+    TxToUnivExpanded(tx, uint256(), entry, true, RPCSerializationFlags());
+
+    if (!hashBlock.IsNull()) {
+        entry.push_back(Pair("blockhash", hashBlock.GetHex()));
+
+        if (nConfirmations > 0) {
+            entry.push_back(Pair("height", nHeight));
+            entry.push_back(Pair("confirmations", nConfirmations));
+            entry.push_back(Pair("time", nBlockTime));
+            entry.push_back(Pair("blocktime", nBlockTime));
+        } else {
+            entry.push_back(Pair("height", -1));
+            entry.push_back(Pair("confirmations", 0));
+        }
+    }
+}
 
 void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
 {
@@ -49,12 +92,15 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
         if (mi != mapBlockIndex.end() && (*mi).second) {
             CBlockIndex* pindex = (*mi).second;
             if (chainActive.Contains(pindex)) {
+                entry.push_back(Pair("height", pindex->nHeight));
                 entry.push_back(Pair("confirmations", 1 + chainActive.Height() - pindex->nHeight));
                 entry.push_back(Pair("time", pindex->GetBlockTime()));
                 entry.push_back(Pair("blocktime", pindex->GetBlockTime()));
             }
-            else
+            else{
+                entry.push_back(Pair("height", -1));
                 entry.push_back(Pair("confirmations", 0));
+            }
         }
     }
 }
@@ -131,7 +177,7 @@ UniValue getrawtransaction(const JSONRPCRequest& request)
             + HelpExampleRpc("getrawtransaction", "\"mytxid\", true")
         );
 
-    LOCK(cs_main);
+    //LOCK(cs_main);
 
     uint256 hash = ParseHashV(request.params[0], "parameter 1");
 
@@ -155,25 +201,45 @@ UniValue getrawtransaction(const JSONRPCRequest& request)
 
     CTransactionRef tx;
     uint256 hashBlock;
-    if (!GetTransaction(hash, tx, Params().GetConsensus(), hashBlock, true)){
-        CBlock genesisBlock = Params().GenesisBlock();
-        CTransactionRef gtx = genesisBlock.vtx[0];
+    int nHeight = 0;
+    int nConfirmations = 0;
+    int nBlockTime = 0;
+    {
+        LOCK(cs_main);
+        if (!GetTransaction(hash, tx, Params().GetConsensus(), hashBlock, true)){
+            CBlock genesisBlock = Params().GenesisBlock();
+            CTransactionRef gtx = genesisBlock.vtx[0];
 
-        if( gtx->GetHash() == hash ){
-            hashBlock = genesisBlock.GetHash();
-            tx = gtx;
-        }else{
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, std::string(fTxIndex ? "No such mempool or blockchain transaction"
-                : "No such mempool transaction. Use -txindex to enable blockchain transaction queries") +
-                ". Use gettransaction for wallet transactions.");
-	}
+            if( gtx->GetHash() == hash ){
+                hashBlock = genesisBlock.GetHash();
+                tx = gtx;
+            }else{
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, std::string(fTxIndex ? "No such mempool or blockchain transaction"
+                    : "No such mempool transaction. Use -txindex to enable blockchain transaction queries") +
+                    ". Use gettransaction for wallet transactions.");
+            }
+        }
+        
+        BlockMap::iterator mi = mapBlockIndex.find(hashBlock);
+        if (mi != mapBlockIndex.end() && (*mi).second) {
+            CBlockIndex* pindex = (*mi).second;
+            if (chainActive.Contains(pindex)) {
+                nHeight = pindex->nHeight;
+                nConfirmations = 1 + chainActive.Height() - pindex->nHeight;
+                nBlockTime = pindex->GetBlockTime();
+            } else {
+                nHeight = -1;
+                nConfirmations = 0;
+                nBlockTime = pindex->GetBlockTime();
+            }
+        }
     }
 
     if (!fVerbose)
         return EncodeHexTx(*tx, RPCSerializationFlags());
 
     UniValue result(UniValue::VOBJ);
-    TxToJSON(*tx, hashBlock, result);
+    TxToJSONExpanded(*tx, hashBlock, result, nHeight, nConfirmations, nBlockTime);
     return result;
 }
 
