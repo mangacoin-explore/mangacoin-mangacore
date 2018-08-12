@@ -278,7 +278,7 @@ void TxToUnivExpanded(const CTransaction& tx, const uint256& hashBlock, UniValue
 
         // Add spent information if spentindex is enabled
         CSpentIndexValue spentInfo;
-        CSpentIndexKey spentKey(txid, i);
+        CSpentIndexKey spentKey(tx.GetHash(), i);
         if (GetSpentIndex(spentKey, spentInfo)) {
             out.pushKV("spentTxId", spentInfo.txid.GetHex());
             out.pushKV("spentIndex", (int)spentInfo.inputIndex);

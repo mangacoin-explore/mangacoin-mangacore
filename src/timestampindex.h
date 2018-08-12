@@ -15,11 +15,11 @@ struct CTimestampIndexIteratorKey {
         return 4;
     }
     template<typename Stream>
-    void Serialize(Stream& s, int nType, int nVersion) const {
+    void Serialize(Stream& s) const {
         ser_writedata32be(s, timestamp);
     }
     template<typename Stream>
-    void Unserialize(Stream& s, int nType, int nVersion) {
+    void Unserialize(Stream& s) {
         timestamp = ser_readdata32be(s);
     }
 
@@ -44,14 +44,14 @@ struct CTimestampIndexKey {
         return 36;
     }
     template<typename Stream>
-    void Serialize(Stream& s, int nType, int nVersion) const {
+    void Serialize(Stream& s) const {
         ser_writedata32be(s, timestamp);
-        blockHash.Serialize(s, nType, nVersion);
+        blockHash.Serialize(s);
     }
     template<typename Stream>
-    void Unserialize(Stream& s, int nType, int nVersion) {
+    void Unserialize(Stream& s) {
         timestamp = ser_readdata32be(s);
-        blockHash.Unserialize(s, nType, nVersion);
+        blockHash.Unserialize(s);
     }
 
     CTimestampIndexKey(unsigned int time, uint256 hash) {
@@ -77,13 +77,13 @@ struct CTimestampBlockIndexKey {
     }
 
     template<typename Stream>
-    void Serialize(Stream& s, int nType, int nVersion) const {
-        blockHash.Serialize(s, nType, nVersion);
+    void Serialize(Stream& s) const {
+        blockHash.Serialize(s);
     }
 
     template<typename Stream>
-    void Unserialize(Stream& s, int nType, int nVersion) {
-        blockHash.Unserialize(s, nType, nVersion);
+    void Unserialize(Stream& s) {
+        blockHash.Unserialize(s);
     }
 
     CTimestampBlockIndexKey(uint256 hash) {
@@ -106,12 +106,12 @@ struct CTimestampBlockIndexValue {
     }
 
     template<typename Stream>
-    void Serialize(Stream& s, int nType, int nVersion) const {
+    void Serialize(Stream& s) const {
         ser_writedata32be(s, ltimestamp);
     }
 
     template<typename Stream>
-    void Unserialize(Stream& s, int nType, int nVersion) {
+    void Unserialize(Stream& s) {
         ltimestamp = ser_readdata32be(s);
     }
 
